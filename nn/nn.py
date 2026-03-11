@@ -88,7 +88,7 @@ class NeuralNetwork:
         activation: str
     ) -> Tuple[ArrayLike, ArrayLike]:
         """
-        TODO: This method is used for a single forward pass on a single layer.
+        This method is used for a single forward pass on a single layer.
 
         Args:
             W_curr: ArrayLike
@@ -106,7 +106,25 @@ class NeuralNetwork:
             Z_curr: ArrayLike
                 Current layer linear transformed matrix.
         """
-        pass
+        #check inputs
+        if activation not in ['relu', 'sigmoid']:
+            raise ValueError("activation must be either 'relu' or 'sigmoid'")
+        if W_curr.shape[1] != A_prev.shape[1]:
+            raise ValueError("W_curr and A_prev have incompatible shapes")
+        if W_curr.shape[0] != b_curr.shape[0]:
+            raise ValueError("W_curr and b_curr have incompatible shapes")
+        
+        #lin transform
+        Z_curr = W_curr.T @ A_prev + b_curr.T
+
+        #activation
+        if activation == 'relu':
+            A_curr = self._relu(Z_curr)
+        else:
+            A_curr = self._sigmoid(Z_curr)
+        
+        return A_curr, Z_curr
+
 
     def forward(self, X: ArrayLike) -> Tuple[ArrayLike, Dict[str, ArrayLike]]:
         """
@@ -122,7 +140,29 @@ class NeuralNetwork:
             cache: Dict[str, ArrayLike]:
                 Dictionary storing Z and A matrices from `_single_forward` for use in backprop.
         """
-        pass
+        #check inputs
+        if X.shape[1] != self.arch[0]['input_dim']:
+            raise ValueError("Input data has incorrect shape")
+        
+        cache = {}
+        cache['A0'] = X
+        A_prev = X
+
+        for idx, layer in enumerate(self.arch): # loop through layers
+            layer_idx = idx + 1
+            W_curr = self._param_dict['W' + str(layer_idx)]
+            b_curr = self._param_dict['b' + str(layer_idx)]
+            activation_curr = layer['activation']
+
+            A_curr, Z_curr = self._single_forward(W_curr, b_curr, A_prev, activation_curr)
+
+            cache['A' + str(layer_idx)] = A_curr
+            cache['Z' + str(layer_idx)] = Z_curr
+
+            A_prev = A_curr # update for next layer
+
+        output = A_curr
+        return output, cache
 
     def _single_backprop(
         self,
@@ -134,7 +174,7 @@ class NeuralNetwork:
         activation_curr: str
     ) -> Tuple[ArrayLike, ArrayLike, ArrayLike]:
         """
-        TODO: This method is used for a single backprop pass on a single layer.
+        This method is used for a single backprop pass on a single layer.
 
         Args:
             W_curr: ArrayLike
@@ -158,7 +198,34 @@ class NeuralNetwork:
             db_curr: ArrayLike
                 Partial derivative of loss function with respect to current layer bias matrix.
         """
-        pass
+        #check inputs
+        if activation_curr not in ['relu', 'sigmoid']:
+            raise ValueError("activation_curr must be either 'relu' or 'sigmoid'")
+        if W_curr.shape[0] != dA_curr.shape[0]:
+            raise ValueError("W_curr and dA_curr have incompatible shapes")
+        if Z_curr.shape != dA_curr.shape:
+            raise ValueError("Z_curr and dA_curr must have the same shape")
+        if A_prev.shape[1] != dA_curr.shape[0]:
+            raise ValueError("A_prev and dA_curr have incompatible shapes")
+        
+        #activation backprop
+        if activation_curr == 'relu':
+            dZ_curr = self._relu_backprop(dA_curr, Z_curr)
+        elif activation_curr == 'sigmoid':
+            dZ_curr = self._sigmoid_backprop(dA_curr, Z_curr)
+        elif activation_curr == 'linear':
+            dZ_curr = dA_curr
+        else:
+            raise ValueError("Unsupported activation type")
+        
+        N = dA_curr.shape[0]
+        D_curr = Z_curr.shape[1]
+        #gradients
+        dA_prev = dZ_curr @ W_curr
+        dW_curr = (1/N) * (dZ_curr.T @ A_prev)
+        db_curr = (1/N) * np.sum(dZ_curr, axis = 0).reshape(D_curr, 1) # sum over all items/examples
+
+        return dA_prev, dW_curr, db_curr
 
     def backprop(self, y: ArrayLike, y_hat: ArrayLike, cache: Dict[str, ArrayLike]):
         """
@@ -177,7 +244,38 @@ class NeuralNetwork:
             grad_dict: Dict[str, ArrayLike]
                 Dictionary containing the gradient information from this pass of backprop.
         """
-        pass
+        #check inputs
+        if y.shape != y_hat.shape:
+            raise ValueError("y and y_hat must have the same shape")
+
+        N = y.shape[0]
+        L = len(self.arch)
+        grad_dict = {}
+
+        #intial gradient
+        if self._loss_func == 'binary_cross_entropy':
+            dA_curr = self._binary_cross_entropy_backprop(y, y_hat)
+        else:
+            dA_curr = self._mean_squared_error_backprop(y, y_hat)
+        
+        # loop thru layers... in reverse
+        for idx in range(L-1, -1, -1):
+            layer_idx = idx + 1
+            W_curr = self._param_dict['W' + str(layer_idx)]
+            b_curr = self._param_dict['b' + str(layer_idx)]
+            Z_curr = cache['Z' + str(layer_idx)]
+            A_prev = cache['A' + str(idx)] #A0
+
+            activation = self.arch[idx]['activation']
+
+            dA_prev, dW_curr, db_curr = self._single_backprop(W_curr, b_curr, Z_curr, A_prev, dA_curr, activation)
+            grad_dict['dW' + str(layer_idx)]
+            grad_dict['db' + str(layer_idx)]
+
+            dA_curr = dA_prev #propagate
+        
+        return grad_dict
+
 
     def _update_params(self, grad_dict: Dict[str, ArrayLike]):
         """
@@ -188,7 +286,10 @@ class NeuralNetwork:
             grad_dict: Dict[str, ArrayLike]
                 Dictionary containing the gradient information from most recent round of backprop.
         """
-        pass
+        for idx, layer in enumerate(self.arch):
+            layer_idx = idx + 1
+            self._param_dict['W' + str(layer_idx)] -= self._lr * grad_dict['dW' + str(layer_idx)]
+            self._param_dict['b' + str(layer_idx)] -= self._lr * grad_dict['db' + str(layer_idx)]
 
     def fit(
         self,
@@ -217,7 +318,45 @@ class NeuralNetwork:
             per_epoch_loss_val: List[float]
                 List of per epoch loss for validation set.
         """
-        pass
+        per_epoch_loss_train = []
+        per_epoch_loss_val = []
+
+        for epoch in range(self._epochs):
+            for i in range(0, X_train.shape[0], self._batch_size):
+                X_batch = X_train[i:i+self._batch_size]
+                y_batch = y_train[i:i+self._batch_size]
+
+                #forward pass
+                y_hat, cache = self.forward(X_batch)
+
+                #compute loss
+                if self._loss_func == 'binary_cross_entropy':
+                    loss_train = self._binary_cross_entropy(y_batch, y_hat)
+                else:
+                    loss_train = self._mean_squared_error(y_batch, y_hat)
+                
+                epoch_loss_sum += loss_train + X_batch.shape[0]
+                epoch_seen += X_batch.shape[0]
+
+                #backprop
+                grad_dict = self.backprop(y_batch, y_hat, cache)
+
+                #update params
+                self._update_params(grad_dict)
+            
+            # avg loss
+            train_epoch_loss = epoch_loss_sum / float(epoch_seen)
+            per_epoch_loss_train.append(train_epoch_loss)
+
+            # validation loss
+            y_val_hat, _ = self.forward(X_val)
+            if self._loss_func == 'binary_cross_entropy':
+                loss_val = self._binary_cross_entropy(y_val, y_val_hat)
+            else:
+                loss_val = self._mean_squared_error(y_val, y_val_hat)
+            per_epoch_loss_val.append(loss_val)
+
+        return per_epoch_loss_train, per_epoch_loss_val
 
     def predict(self, X: ArrayLike) -> ArrayLike:
         """
@@ -231,7 +370,9 @@ class NeuralNetwork:
             y_hat: ArrayLike
                 Prediction from the model.
         """
-        pass
+        y_hat, _ = self.forward(X)
+
+        return y_hat
 
     def _sigmoid(self, Z: ArrayLike) -> ArrayLike:
         """
@@ -246,9 +387,6 @@ class NeuralNetwork:
                 Activation function output.
         """
         nl_transform = 1 / (1 + np.exp(-Z))
-
-        # store for backprop
-        self._A = nl_transform
 
         return nl_transform
 
@@ -270,7 +408,8 @@ class NeuralNetwork:
         if dA.shape != Z.shape:
             raise ValueError("dA and Z must have the same shape")
         
-        dZ = dA * self._A * (1 - self._A)
+        sig = self._sigmoid(Z)
+        dZ = dA * sig * (1 - sig)
 
         return dZ
 
@@ -308,7 +447,7 @@ class NeuralNetwork:
         if dA.shape != Z.shape:
             raise ValueError("dA and Z must have the same shape")
         
-        dZ = dA * (self._Z > 0) # Z > 0 else 0
+        dZ = dA * (Z > 0)
 
         return dZ
 
