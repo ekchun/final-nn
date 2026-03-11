@@ -235,7 +235,7 @@ class NeuralNetwork:
 
     def _sigmoid(self, Z: ArrayLike) -> ArrayLike:
         """
-        TODO: Sigmoid activation function.
+        Sigmoid activation function.
 
         Args:
             Z: ArrayLike
@@ -245,11 +245,16 @@ class NeuralNetwork:
             nl_transform: ArrayLike
                 Activation function output.
         """
-        pass
+        nl_transform = 1 / (1 + np.exp(-Z))
+
+        # store for backprop
+        self._A = nl_transform
+
+        return nl_transform
 
     def _sigmoid_backprop(self, dA: ArrayLike, Z: ArrayLike):
         """
-        TODO: Sigmoid derivative for backprop.
+        Sigmoid derivative for backprop.
 
         Args:
             dA: ArrayLike
@@ -261,11 +266,17 @@ class NeuralNetwork:
             dZ: ArrayLike
                 Partial derivative of current layer Z matrix.
         """
-        pass
+        #check inputs
+        if dA.shape != Z.shape:
+            raise ValueError("dA and Z must have the same shape")
+        
+        dZ = dA * self._A * (1 - self._A)
+
+        return dZ
 
     def _relu(self, Z: ArrayLike) -> ArrayLike:
         """
-        TODO: ReLU activation function.
+        ReLU activation function.
 
         Args:
             Z: ArrayLike
@@ -275,11 +286,13 @@ class NeuralNetwork:
             nl_transform: ArrayLike
                 Activation function output.
         """
-        pass
+        nl_transform = np.maximum(0, Z)
+        
+        return nl_transform
 
     def _relu_backprop(self, dA: ArrayLike, Z: ArrayLike) -> ArrayLike:
         """
-        TODO: ReLU derivative for backprop.
+        ReLU derivative for backprop.
 
         Args:
             dA: ArrayLike
@@ -291,11 +304,17 @@ class NeuralNetwork:
             dZ: ArrayLike
                 Partial derivative of current layer Z matrix.
         """
-        pass
+        #check inputs
+        if dA.shape != Z.shape:
+            raise ValueError("dA and Z must have the same shape")
+        
+        dZ = dA * (self._Z > 0) # Z > 0 else 0
+
+        return dZ
 
     def _binary_cross_entropy(self, y: ArrayLike, y_hat: ArrayLike) -> float:
         """
-        TODO: Binary cross entropy loss function.
+        Binary cross entropy loss function.
 
         Args:
             y_hat: ArrayLike
@@ -307,11 +326,31 @@ class NeuralNetwork:
             loss: float
                 Average loss over mini-batch.
         """
-        pass
+        #check inputs
+        if y.shape != y_hat.shape:
+            raise ValueError("y and y_hat must have the same shape")
+        
+        # #convert to float
+        # y_hat = y_hat.astype(float)
+        # y = y.astype(float)
+
+        #clip y_hat for stability
+        eps = 1e-9
+        y_hat_clip = np.clip(y_hat, eps, 1 - eps)
+
+        #binary cross entropy loss
+        bce_loss = - (y * np.log(y_hat_clip) + (1 - y) * np.log(1 - y_hat_clip))
+        # if multi-D, sum bce loss across output dimension then average
+        if bce_loss.ndim > 1:
+            per_ex_loss = np.sum(bce_loss, axis=1)
+        else:
+            per_ex_loss = bce_loss
+        
+        return float(np.mean(per_ex_loss))
 
     def _binary_cross_entropy_backprop(self, y: ArrayLike, y_hat: ArrayLike) -> ArrayLike:
         """
-        TODO: Binary cross entropy loss function derivative for backprop.
+        Binary cross entropy loss function derivative for backprop.
 
         Args:
             y_hat: ArrayLike
@@ -323,11 +362,21 @@ class NeuralNetwork:
             dA: ArrayLike
                 partial derivative of loss with respect to A matrix.
         """
-        pass
+        #check inputs
+        if y.shape != y_hat.shape:
+            raise ValueError("y and y_hat must have the same shape")
+        
+        #bce derivative
+        eps = 1e-9
+        y_hat_clip = np.clip(y_hat, eps, 1 - eps)
+
+        dA = (1 / y.shape[0]) * ((y_hat_clip - y) / (y_hat_clip * (1 - y_hat_clip))) # average over batch size
+
+        return dA
 
     def _mean_squared_error(self, y: ArrayLike, y_hat: ArrayLike) -> float:
         """
-        TODO: Mean squared error loss.
+        Mean squared error loss.
 
         Args:
             y: ArrayLike
@@ -355,7 +404,7 @@ class NeuralNetwork:
 
     def _mean_squared_error_backprop(self, y: ArrayLike, y_hat: ArrayLike) -> ArrayLike:
         """
-        TODO: Mean square error loss derivative for backprop.
+        Mean square error loss derivative for backprop.
 
         Args:
             y_hat: ArrayLike
