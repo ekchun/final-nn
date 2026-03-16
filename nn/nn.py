@@ -438,10 +438,6 @@ class NeuralNetwork:
             loss: float
                 Average loss over mini-batch.
         """
-        #check inputs
-        if y.shape != y_hat.shape:
-            raise ValueError("y and y_hat must have the same shape")
-
         # stability
         eps = 1e-9
         y_hat_clip = np.clip(y_hat, eps, 1 - eps)
@@ -465,10 +461,6 @@ class NeuralNetwork:
             dA: ArrayLike
                 partial derivative of loss with respect to A matrix.
         """
-        #check inputs
-        if y.shape != y_hat.shape:
-            raise ValueError("y and y_hat must have the same shape")
-        
         #bce derivative
         eps = 1e-9
         y_hat_clip = np.clip(y_hat, eps, 1 - eps)
@@ -491,11 +483,6 @@ class NeuralNetwork:
             loss: float
                 Average loss of mini-batch.
         """
-        #check inputs
-        if y.shape != y_hat.shape:
-            raise ValueError("y and y_hat must have the same shape")
-
-        #MSE
         mse = np.mean((y - y_hat) ** 2)
 
         return float(mse)
@@ -514,11 +501,7 @@ class NeuralNetwork:
             dA: ArrayLike
                 partial derivative of loss with respect to A matrix.
         """
-        #check inputs
-        if y.shape != y_hat.shape:
-            raise ValueError("y and y_hat must have the same shape")
-        
-        #MSE derivative
+        # derivative
         dA = - (2 / y.shape[0]) * (y - y_hat) # average over batch size
 
         return dA
