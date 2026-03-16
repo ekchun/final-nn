@@ -1,5 +1,8 @@
 # Final project: neural network
 
+## Eden's Notes
+idk man. chat was in fact used, mainly for the unit testing because i still have trouble setting that up lol. please enjoy and thanks for grading!
+
 ## Overview
 
 In this assignment, you will implement a neural network class from (almost) scratch. You will then apply your class to create both:
