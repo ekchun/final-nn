@@ -30,7 +30,7 @@ class NeuralNetwork:
 
     def __init__(
         self,
-        nn_arch: List[Dict[str, Union(int, str)]],
+        nn_arch: List[Dict[str, Union[int, str]]],
         lr: float,
         seed: int,
         batch_size: int,
@@ -109,13 +109,9 @@ class NeuralNetwork:
         #check inputs
         if activation not in ['relu', 'sigmoid']:
             raise ValueError("activation must be either 'relu' or 'sigmoid'")
-        if W_curr.shape[1] != A_prev.shape[1]:
-            raise ValueError("W_curr and A_prev have incompatible shapes")
-        if W_curr.shape[0] != b_curr.shape[0]:
-            raise ValueError("W_curr and b_curr have incompatible shapes")
         
         #lin transform
-        Z_curr = W_curr.T @ A_prev + b_curr.T
+        Z_curr = np.dot(W_curr, A_prev) + b_curr
 
         #activation
         if activation == 'relu':
@@ -140,10 +136,7 @@ class NeuralNetwork:
             cache: Dict[str, ArrayLike]:
                 Dictionary storing Z and A matrices from `_single_forward` for use in backprop.
         """
-        #check inputs
-        if X.shape[1] != self.arch[0]['input_dim']:
-            raise ValueError("Input data has incorrect shape")
-        
+
         cache = {}
         cache['A0'] = X
         A_prev = X
@@ -156,13 +149,13 @@ class NeuralNetwork:
 
             A_curr, Z_curr = self._single_forward(W_curr, b_curr, A_prev, activation_curr)
 
+            # cache
             cache['A' + str(layer_idx)] = A_curr
             cache['Z' + str(layer_idx)] = Z_curr
 
             A_prev = A_curr # update for next layer
 
-        output = A_curr
-        return output, cache
+        return A_prev, cache
 
     def _single_backprop(
         self,
@@ -198,32 +191,19 @@ class NeuralNetwork:
             db_curr: ArrayLike
                 Partial derivative of loss function with respect to current layer bias matrix.
         """
-        #check inputs
-        if activation_curr not in ['relu', 'sigmoid']:
-            raise ValueError("activation_curr must be either 'relu' or 'sigmoid'")
-        if W_curr.shape[0] != dA_curr.shape[0]:
-            raise ValueError("W_curr and dA_curr have incompatible shapes")
-        if Z_curr.shape != dA_curr.shape:
-            raise ValueError("Z_curr and dA_curr must have the same shape")
-        if A_prev.shape[1] != dA_curr.shape[0]:
-            raise ValueError("A_prev and dA_curr have incompatible shapes")
-        
+
         #activation backprop
         if activation_curr == 'relu':
             dZ_curr = self._relu_backprop(dA_curr, Z_curr)
         elif activation_curr == 'sigmoid':
             dZ_curr = self._sigmoid_backprop(dA_curr, Z_curr)
-        elif activation_curr == 'linear':
-            dZ_curr = dA_curr
         else:
             raise ValueError("Unsupported activation type")
-        
-        N = dA_curr.shape[0]
-        D_curr = Z_curr.shape[1]
+
         #gradients
-        dA_prev = dZ_curr @ W_curr
-        dW_curr = (1/N) * (dZ_curr.T @ A_prev)
-        db_curr = (1/N) * np.sum(dZ_curr, axis = 0).reshape(D_curr, 1) # sum over all items/examples
+        dA_prev = np.dot(W_curr.T, dZ_curr)
+        dW_curr = np.dot(dZ_curr, A_prev.T)
+        db_curr = np.sum(dZ_curr, axis = 1, keepdims = True)
 
         return dA_prev, dW_curr, db_curr
 
@@ -244,36 +224,39 @@ class NeuralNetwork:
             grad_dict: Dict[str, ArrayLike]
                 Dictionary containing the gradient information from this pass of backprop.
         """
-        #check inputs
-        if y.shape != y_hat.shape:
-            raise ValueError("y and y_hat must have the same shape")
 
         N = y.shape[0]
         L = len(self.arch)
+
         grad_dict = {}
 
         #intial gradient
         if self._loss_func == 'binary_cross_entropy':
             dA_curr = self._binary_cross_entropy_backprop(y, y_hat)
-        else:
+        elif self._loss_func == 'mean_squared_error':
             dA_curr = self._mean_squared_error_backprop(y, y_hat)
+        else:
+            raise ValueError('unsupported loss type')
         
-        # loop thru layers... in reverse
+        # move thru layers... in reverse
         for idx in range(L-1, -1, -1):
             layer_idx = idx + 1
             W_curr = self._param_dict['W' + str(layer_idx)]
             b_curr = self._param_dict['b' + str(layer_idx)]
             Z_curr = cache['Z' + str(layer_idx)]
-            A_prev = cache['A' + str(idx)] #A0
+            A_prev = cache['A' + str(idx)] # prev not curr
 
             activation = self.arch[idx]['activation']
 
+            #back prop
             dA_prev, dW_curr, db_curr = self._single_backprop(W_curr, b_curr, Z_curr, A_prev, dA_curr, activation)
-            grad_dict['dW' + str(layer_idx)]
-            grad_dict['db' + str(layer_idx)]
 
-            dA_curr = dA_prev #propagate
-        
+            #update
+            grad_dict['dW' + str(layer_idx)] = dW_curr
+            grad_dict['db' + str(layer_idx)] = db_curr
+
+            dA_curr = dA_prev
+
         return grad_dict
 
 
@@ -322,39 +305,31 @@ class NeuralNetwork:
         per_epoch_loss_val = []
 
         for epoch in range(self._epochs):
-            for i in range(0, X_train.shape[0], self._batch_size):
-                X_batch = X_train[i:i+self._batch_size]
-                y_batch = y_train[i:i+self._batch_size]
+            epoch_loss_sum = 0
+            epoch_seen = 0
+
+            for i in range(0, X_train.shape[0], self._batch_size): # batch
+                X_batch = X_train[i:i+self._batch_size].T
+                y_batch = y_train[i:i+self._batch_size].T
 
                 #forward pass
                 y_hat, cache = self.forward(X_batch)
-
-                #compute loss
-                if self._loss_func == 'binary_cross_entropy':
-                    loss_train = self._binary_cross_entropy(y_batch, y_hat)
-                else:
-                    loss_train = self._mean_squared_error(y_batch, y_hat)
-                
-                epoch_loss_sum += loss_train + X_batch.shape[0]
-                epoch_seen += X_batch.shape[0]
 
                 #backprop
                 grad_dict = self.backprop(y_batch, y_hat, cache)
 
                 #update params
                 self._update_params(grad_dict)
-            
-            # avg loss
-            train_epoch_loss = epoch_loss_sum / float(epoch_seen)
-            per_epoch_loss_train.append(train_epoch_loss)
 
-            # validation loss
-            y_val_hat, _ = self.forward(X_val)
-            if self._loss_func == 'binary_cross_entropy':
-                loss_val = self._binary_cross_entropy(y_val, y_val_hat)
+            # both train and val loss
+            if self._loss_func.lower() == "mean_squared_error":
+                per_epoch_loss_train.append(np.mean(self._mean_squared_error(y_train.T, self.predict(X_train.T))))
+                per_epoch_loss_val.append(np.mean(self._mean_squared_error(y_val.T, self.predict(X_val.T))))
+            elif self._loss_func.lower() == "binary_cross_entropy":
+                per_epoch_loss_train.append(np.mean(self._binary_cross_entropy(y_train.T, self.predict(X_train.T))))
+                per_epoch_loss_val.append(np.mean(self._binary_cross_entropy(y_val.T, self.predict(X_val.T))))
             else:
-                loss_val = self._mean_squared_error(y_val, y_val_hat)
-            per_epoch_loss_val.append(loss_val)
+                raise ValueError('invalid loss function')
 
         return per_epoch_loss_train, per_epoch_loss_val
 
@@ -386,9 +361,8 @@ class NeuralNetwork:
             nl_transform: ArrayLike
                 Activation function output.
         """
-        nl_transform = 1 / (1 + np.exp(-Z))
 
-        return nl_transform
+        return 1 / (1 + np.exp(-Z))
 
     def _sigmoid_backprop(self, dA: ArrayLike, Z: ArrayLike):
         """
@@ -425,9 +399,8 @@ class NeuralNetwork:
             nl_transform: ArrayLike
                 Activation function output.
         """
-        nl_transform = np.maximum(0, Z)
         
-        return nl_transform
+        return np.maximum(0, Z)
 
     def _relu_backprop(self, dA: ArrayLike, Z: ArrayLike) -> ArrayLike:
         """
@@ -468,24 +441,15 @@ class NeuralNetwork:
         #check inputs
         if y.shape != y_hat.shape:
             raise ValueError("y and y_hat must have the same shape")
-        
-        # #convert to float
-        # y_hat = y_hat.astype(float)
-        # y = y.astype(float)
 
-        #clip y_hat for stability
+        # stability
         eps = 1e-9
         y_hat_clip = np.clip(y_hat, eps, 1 - eps)
 
-        #binary cross entropy loss
-        bce_loss = - (y * np.log(y_hat_clip) + (1 - y) * np.log(1 - y_hat_clip))
-        # if multi-D, sum bce loss across output dimension then average
-        if bce_loss.ndim > 1:
-            per_ex_loss = np.sum(bce_loss, axis=1)
-        else:
-            per_ex_loss = bce_loss
-        
-        return float(np.mean(per_ex_loss))
+        #bce loss
+        loss = - np.mean(y * np.log(y_hat_clip) + (1 - y) * np.log(1 - y_hat_clip))
+
+        return float(loss)
 
     def _binary_cross_entropy_backprop(self, y: ArrayLike, y_hat: ArrayLike) -> ArrayLike:
         """
@@ -509,7 +473,7 @@ class NeuralNetwork:
         eps = 1e-9
         y_hat_clip = np.clip(y_hat, eps, 1 - eps)
 
-        dA = (1 / y.shape[0]) * ((y_hat_clip - y) / (y_hat_clip * (1 - y_hat_clip))) # average over batch size
+        dA = (y_hat_clip - y) / (y_hat_clip * (1 - y_hat_clip))
 
         return dA
 
@@ -532,14 +496,9 @@ class NeuralNetwork:
             raise ValueError("y and y_hat must have the same shape")
 
         #MSE
-        sq_error = (y_hat - y) ** 2
-        # if multi-D, sum squared error across output dimension then average
-        if sq_error.ndim > 1:
-            per_ex_error = np.sum(sq_error, axis=1)
-        else:
-            per_ex_error = sq_error
-        
-        return float(np.mean(per_ex_error))
+        mse = np.mean((y - y_hat) ** 2)
+
+        return float(mse)
 
     def _mean_squared_error_backprop(self, y: ArrayLike, y_hat: ArrayLike) -> ArrayLike:
         """
@@ -560,6 +519,6 @@ class NeuralNetwork:
             raise ValueError("y and y_hat must have the same shape")
         
         #MSE derivative
-        dA = (2 / y.shape[0]) * (y_hat - y) # average over batch size
+        dA = - (2 / y.shape[0]) * (y - y_hat) # average over batch size
 
         return dA
