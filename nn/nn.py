@@ -110,8 +110,13 @@ class NeuralNetwork:
         if activation not in ['relu', 'sigmoid']:
             raise ValueError("activation must be either 'relu' or 'sigmoid'")
         
+        W_curr = np.asarray(W_curr, dtype=float)
+        b_curr = np.asarray(b_curr, dtype=float)
+        A_prev = np.asarray(A_prev, dtype=float)
+        
         #lin transform
-        Z_curr = np.dot(W_curr, A_prev) + b_curr
+        # Z_curr = np.dot(W_curr, A_prev) + b_curr
+        Z_curr = A_prev @ W_curr.T + b_curr.T
 
         #activation
         if activation == 'relu':
@@ -138,14 +143,21 @@ class NeuralNetwork:
         """
 
         cache = {}
-        cache['A0'] = X
-        A_prev = X
+        A_prev = X.copy()
+        cache['A0'] = A_prev
 
         for idx, layer in enumerate(self.arch): # loop through layers
             layer_idx = idx + 1
             W_curr = self._param_dict['W' + str(layer_idx)]
             b_curr = self._param_dict['b' + str(layer_idx)]
             activation_curr = layer['activation']
+
+            # Sanity check dimensions before matmul
+            D_prev_expected = W_curr.shape[1]
+            if A_prev.shape[1] != D_prev_expected:
+                raise ValueError(f"Shape mismatch at layer {layer_idx}: A_prev has shape {A_prev.shape} "
+                                f"but W{layer_idx} expects input dim {D_prev_expected} (W shape {W_curr.shape}). "
+                                "If this is the first layer, check that X.shape[1] matches arch[0]['input_dim'].")
 
             A_curr, Z_curr = self._single_forward(W_curr, b_curr, A_prev, activation_curr)
 
@@ -155,7 +167,8 @@ class NeuralNetwork:
 
             A_prev = A_curr # update for next layer
 
-        return A_prev, cache
+        output = A_prev
+        return output, cache
 
     def _single_backprop(
         self,
@@ -201,9 +214,13 @@ class NeuralNetwork:
             raise ValueError("Unsupported activation type")
 
         #gradients
-        dA_prev = np.dot(W_curr.T, dZ_curr)
-        dW_curr = np.dot(dZ_curr, A_prev.T)
-        db_curr = np.sum(dZ_curr, axis = 1, keepdims = True)
+        # dA_prev = np.dot(W_curr.T, dZ_curr)
+        # dW_curr = np.dot(dZ_curr, A_prev.T)
+        # db_curr = np.sum(dZ_curr, axis = 1, keepdims = True)
+        N = A_prev.shape[0]
+        dW_curr = (dZ_curr.T @ A_prev) / max(1, N)
+        db_curr = np.sum(dZ_curr, axis=0, keepdims=True).T
+        dA_prev = dZ_curr @ W_curr
 
         return dA_prev, dW_curr, db_curr
 
